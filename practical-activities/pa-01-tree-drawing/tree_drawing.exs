@@ -5,7 +5,9 @@
 #
 # Variáveis de fluxo de dados: o programa em Oz as usa para
 #   1) os campos x e y, criados não ligados por AddXY e ligados depois;
-#   2) os parâmetros de saída ?RootX e ?RightLim.
+#   2) os parâmetros de saída ?RootX e ?RightLim;
+#   3) nos casos de um só filho, a ligação X=RootX feita antes da chamada
+#      recursiva, quando RootX ainda não tem valor.
 # Elixir não as possui. Como o programa é sequencial e cada variável é ligada
 # uma única vez, basta trocar as saídas por valores de retorno: depth_first/3
 # devolve {árvore_com_xy, root_x, right_lim}, e o nó só é construído depois de
@@ -13,9 +15,18 @@
 defmodule TreeDrawing do
   @scale 30
 
+  def draw(:leaf), do: :leaf
+
   def draw(tree) do
     {drawn, _root_x, _right_lim} = depth_first(tree, 1, @scale)
     drawn
+  end
+
+  # Lista {key, x, y} dos nós em ordem de profundidade, para conferência.
+  def coordinates(:leaf), do: []
+
+  def coordinates(%{key: key, x: x, y: y, left: left, right: right}) do
+    [{key, x, y} | coordinates(left) ++ coordinates(right)]
   end
 
   defp depth_first(%{left: :leaf, right: :leaf} = tree, level, left_lim) do
@@ -23,38 +34,41 @@ defmodule TreeDrawing do
   end
 
   defp depth_first(%{left: left, right: :leaf} = tree, level, left_lim) do
-    {left, root_x, right_lim} = depth_first(left, level + 1, left_lim)
-    {place(%{tree | left: left}, root_x, level), root_x, right_lim}
+    {left_drawn, root_x, right_lim} = depth_first(left, level + 1, left_lim)
+    {place(%{tree | left: left_drawn}, root_x, level), root_x, right_lim}
   end
 
   defp depth_first(%{left: :leaf, right: right} = tree, level, left_lim) do
-    {right, root_x, right_lim} = depth_first(right, level + 1, left_lim)
-    {place(%{tree | right: right}, root_x, level), root_x, right_lim}
+    {right_drawn, root_x, right_lim} = depth_first(right, level + 1, left_lim)
+    {place(%{tree | right: right_drawn}, root_x, level), root_x, right_lim}
   end
 
   defp depth_first(%{left: left, right: right} = tree, level, left_lim) do
-    {left, l_root_x, l_right_lim} = depth_first(left, level + 1, left_lim)
-    {right, r_root_x, right_lim} = depth_first(right, level + 1, l_right_lim + @scale)
+    {left_drawn, l_root_x, l_right_lim} = depth_first(left, level + 1, left_lim)
+    {right_drawn, r_root_x, right_lim} = depth_first(right, level + 1, l_right_lim + @scale)
     root_x = div(l_root_x + r_root_x, 2)
-    {place(%{tree | left: left, right: right}, root_x, level), root_x, right_lim}
+    {place(%{tree | left: left_drawn, right: right_drawn}, root_x, level), root_x, right_lim}
   end
 
   defp place(tree, x, level), do: Map.merge(tree, %{x: x, y: @scale * level})
 end
 
 # Árvore de exemplo da Figura 3.17
-node = fn key, val, left, right -> %{key: key, val: val, left: left, right: right} end
-leaf = fn key, val -> node.(key, val, :leaf, :leaf) end
+tree = fn key, val, left, right -> %{key: key, val: val, left: left, right: right} end
+childless = fn key, val -> tree.(key, val, :leaf, :leaf) end
 
 example =
-  node.(:a, 111,
-    node.(:b, 55,
-      node.(:x, 100, leaf.(:z, 56), leaf.(:w, 23)),
-      node.(:y, 105, :leaf, leaf.(:r, 77))),
-    node.(:c, 123,
-      node.(:d, 119,
-        leaf.(:g, 44),
-        node.(:h, 50, leaf.(:i, 5), leaf.(:j, 6))),
-      leaf.(:e, 133)))
+  tree.(:a, 111,
+    tree.(:b, 55,
+      tree.(:x, 100, childless.(:z, 56), childless.(:w, 23)),
+      tree.(:y, 105, :leaf, childless.(:r, 77))),
+    tree.(:c, 123,
+      tree.(:d, 119,
+        childless.(:g, 44),
+        tree.(:h, 50, childless.(:i, 5), childless.(:j, 6))),
+      childless.(:e, 133)))
 
-IO.inspect(TreeDrawing.draw(example), limit: :infinity)
+example
+|> TreeDrawing.draw()
+|> TreeDrawing.coordinates()
+|> Enum.each(fn {key, x, y} -> IO.puts("#{key}: (#{x}, #{y})") end)
